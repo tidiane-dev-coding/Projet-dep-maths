@@ -2,8 +2,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import http from 'http';
-import { createApp } from './app';
-import { initSocket } from './socket';
+import { createApp } from './src/app';
+import { initSocket } from './src/socket';
 import mongoose from 'mongoose';
 
 const PORT = process.env.PORT || 5000;
