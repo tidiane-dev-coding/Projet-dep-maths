@@ -4,6 +4,7 @@ import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
+import { uploadBufferToS3 } from '../utils/s3';
 import CommitteeMember from '../models/CommitteeMember';
 import { requireAuth, requireRole } from '../middleware/auth';
 
@@ -15,29 +16,18 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// Multer: stockage sur disque pour les images
-const storage = multer.diskStorage({
-  destination: function (_req, _file, cb) {
-    cb(null, uploadsDir);
-  },
-  filename: function (_req, file, cb) {
-    const safe = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-    cb(null, safe);
-  }
-});
+// Use memory storage so we can optionally upload to S3 or save to disk
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
   fileFilter: function (_req, file, cb) {
-    // Accepte seulement les images
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'));
-    }
+    // Accept images only
+    if (file.mimetype.startsWith('image/')) cb(null, true)
+    else cb(new Error('Only image files are allowed'))
   },
   limits: { fileSize: 5 * 1024 * 1024 } // 5 MB
-});
+})
 
 // GET /api/committees?level=L1
 // - Description: retourne la liste des membres de comité.
@@ -82,16 +72,35 @@ router.post('/upload-photo', requireAuth, requireRole('Admin'), upload.single('p
       });
     }
 
-    const file = req.file;
-    // Build an absolute URL for the uploaded file so clients (mobile/web) can fetch it
-    const configuredBase = process.env.BASE_URL || process.env.KEEP_ALIVE_URL || null;
-    const reqBase = req.protocol && req.get('host') ? `${req.protocol}://${req.get('host')}` : null;
+    const file = req.file as any
+    if (!file) return res.status(400).json({ message: 'No file uploaded' })
+
+    // create a safe filename
+    const filename = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_')
+
+    // Determine base URL for fallback
+    const configuredBase = process.env.BASE_URL || process.env.KEEP_ALIVE_URL || null
+    const reqBase = req.protocol && req.get('host') ? `${req.protocol}://${req.get('host')}` : null
     const base = (configuredBase || reqBase || `http://localhost:${process.env.PORT || 5000}`).replace(/\/+$/, '')
-    const publicUrl = `${base}/uploads/${file.filename}`;
 
-    console.log('Uploaded file saved:', file.filename, 'size:', file.size, 'publicUrl:', publicUrl);
+    try {
+      let publicUrl: string
+      if (process.env.S3_BUCKET) {
+        // upload to S3
+        publicUrl = await uploadBufferToS3(file.buffer, filename, file.mimetype)
+      } else {
+        // fallback: save to local uploads dir
+        const dest = path.join(uploadsDir, filename)
+        fs.writeFileSync(dest, file.buffer)
+        publicUrl = `${base}/uploads/${filename}`
+      }
 
-    return res.json({ url: publicUrl, filename: file.filename });
+      console.log('Uploaded file saved:', filename, 'size:', file.size, 'publicUrl:', publicUrl)
+      return res.json({ url: publicUrl, filename })
+    } catch (err: any) {
+      console.error('Error saving uploaded file', err)
+      return res.status(500).json({ message: err.message || 'Failed to save uploaded file' })
+    }
   } catch (err: any) {
     console.error('Error POST /api/committees/upload-photo', err);
     return res.status(500).json({ message: err.message || 'Failed to upload photo' });
