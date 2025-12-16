@@ -83,9 +83,13 @@ router.post('/upload-photo', requireAuth, requireRole('Admin'), upload.single('p
     }
 
     const file = req.file;
-    const publicUrl = `/uploads/${file.filename}`;
+    // Build an absolute URL for the uploaded file so clients (mobile/web) can fetch it
+    const configuredBase = process.env.BASE_URL || process.env.KEEP_ALIVE_URL || null;
+    const reqBase = req.protocol && req.get('host') ? `${req.protocol}://${req.get('host')}` : null;
+    const base = (configuredBase || reqBase || `http://localhost:${process.env.PORT || 5000}`).replace(/\/+$/, '')
+    const publicUrl = `${base}/uploads/${file.filename}`;
 
-    console.log('Uploaded file saved:', file.filename, 'size:', file.size);
+    console.log('Uploaded file saved:', file.filename, 'size:', file.size, 'publicUrl:', publicUrl);
 
     return res.json({ url: publicUrl, filename: file.filename });
   } catch (err: any) {
