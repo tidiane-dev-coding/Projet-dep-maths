@@ -1,23 +1,39 @@
 import { v2 as cloudinary } from 'cloudinary'
 
-const cloudName = process.env.CLOUDINARY_CLOUD_NAME
-const apiKey = process.env.CLOUDINARY_API_KEY
-const apiSecret = process.env.CLOUDINARY_API_SECRET
+function getMissingCloudinaryVars() {
+  const cloudUrl = process.env.CLOUDINARY_URL
+  if (cloudUrl && cloudUrl.trim()) return []
 
-export const isCloudinaryConfigured = Boolean(cloudName && apiKey && apiSecret)
+  const missing: string[] = []
+  if (!process.env.CLOUDINARY_CLOUD_NAME) missing.push('CLOUDINARY_CLOUD_NAME')
+  if (!process.env.CLOUDINARY_API_KEY) missing.push('CLOUDINARY_API_KEY')
+  if (!process.env.CLOUDINARY_API_SECRET) missing.push('CLOUDINARY_API_SECRET')
+  return missing
+}
 
-if (isCloudinaryConfigured) {
+function ensureCloudinaryConfigured() {
+  const cloudUrl = process.env.CLOUDINARY_URL
+  if (cloudUrl && cloudUrl.trim()) {
+    // Cloudinary SDK lit automatiquement CLOUDINARY_URL, mais on force secure URLs.
+    cloudinary.config({ secure: true })
+    return
+  }
+
+  const missing = getMissingCloudinaryVars()
+  if (missing.length > 0) {
+    throw new Error(`Cloudinary not configured. Missing: ${missing.join(', ')}`)
+  }
+
   cloudinary.config({
-    cloud_name: cloudName,
-    api_key: apiKey,
-    api_secret: apiSecret,
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+    secure: true,
   })
 }
 
 export async function uploadPdfBufferToCloudinary(buffer: Buffer, filename: string) {
-  if (!isCloudinaryConfigured) {
-    throw new Error('Cloudinary not configured (missing CLOUDINARY_* env vars)')
-  }
+  ensureCloudinaryConfigured()
 
   return await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -39,9 +55,7 @@ export async function uploadPdfBufferToCloudinary(buffer: Buffer, filename: stri
 }
 
 export async function uploadImageBufferToCloudinary(buffer: Buffer, filename: string) {
-  if (!isCloudinaryConfigured) {
-    throw new Error('Cloudinary not configured (missing CLOUDINARY_* env vars)')
-  }
+  ensureCloudinaryConfigured()
 
   return await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(

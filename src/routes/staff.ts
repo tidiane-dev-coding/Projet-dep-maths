@@ -31,11 +31,16 @@ function parseFocus(value: unknown): string[] {
   return raw.split(',').map((x) => x.trim()).filter(Boolean)
 }
 
-async function uploadOptionalPhoto(req: any): Promise<string | undefined> {
+async function uploadOptionalPhoto(req: any): Promise<{ photo?: string; warning?: string }> {
   const file = req.file as any
-  if (!file) return undefined
-  const uploaded = await uploadImageBufferToCloudinary(file.buffer, file.originalname)
-  return uploaded.secure_url
+  if (!file) return {}
+  try {
+    const uploaded = await uploadImageBufferToCloudinary(file.buffer, file.originalname)
+    return { photo: uploaded.secure_url }
+  } catch (err: any) {
+    console.error('Staff photo upload failed, continue without photo:', err?.message || err)
+    return { warning: 'Photo upload failed; member saved without photo' }
+  }
 }
 
 // GET /api/staff (public)
@@ -84,7 +89,7 @@ router.post('/', requireAuth, requireRole(['Admin', 'Professor']), upload.single
       return res.status(400).json({ message: 'Missing required fields' })
     }
 
-    const photo = await uploadOptionalPhoto(req)
+    const photoResult = await uploadOptionalPhoto(req)
 
     const created = await StaffMember.create({
       name,
@@ -95,9 +100,9 @@ router.post('/', requireAuth, requireRole(['Admin', 'Professor']), upload.single
       office,
       bio,
       focus,
-      ...(photo ? { photo } : {}),
+      ...(photoResult.photo ? { photo: photoResult.photo } : {}),
     })
-    res.json(created)
+    res.json(photoResult.warning ? { ...created.toObject(), warning: photoResult.warning } : created)
   } catch (err: any) {
     console.error('Error POST /api/staff', err)
     if (err?.name === 'ValidationError') return res.status(400).json({ message: err.message })
@@ -127,11 +132,11 @@ router.put('/:id', requireAuth, requireRole(['Admin', 'Professor']), upload.sing
       payload.focus = parseFocus(req.body.focus)
     }
 
-    const photo = await uploadOptionalPhoto(req)
-    if (photo) payload.photo = photo
+    const photoResult = await uploadOptionalPhoto(req)
+    if (photoResult.photo) payload.photo = photoResult.photo
 
     const updated = await StaffMember.findByIdAndUpdate(req.params.id, payload, { new: true })
-    res.json(updated)
+    res.json(photoResult.warning && updated ? { ...updated.toObject(), warning: photoResult.warning } : updated)
   } catch (err: any) {
     console.error('Error PUT /api/staff/:id', err)
     res.status(500).json({ message: err?.message || 'Failed to update staff member' })
