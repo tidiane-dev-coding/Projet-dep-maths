@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { ObjectCannedACL, PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 const REGION = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1'
 const BUCKET = process.env.S3_BUCKET || ''
@@ -12,7 +12,7 @@ export async function uploadBufferToS3(buffer: Buffer, key: string, contentType?
     Key: key,
     Body: buffer,
     ContentType: contentType || 'application/octet-stream',
-    ACL: 'public-read',
+    ACL: 'public-read' as ObjectCannedACL,
   }
   const cmd = new PutObjectCommand(params)
   await s3Client.send(cmd)

@@ -11,6 +11,7 @@ import electionsRoutes from './routes/elections';
 import scheduleRoutes from './routes/schedule';
 import resourcesRoutes from './routes/resources';
 import committeesRoutes from './routes/committees';
+import staffRoutes from './routes/staff';
 
 export function createApp() {
   const app = express();
@@ -31,6 +32,7 @@ export function createApp() {
   app.use('/api/schedule', scheduleRoutes);
   app.use('/api/resources', resourcesRoutes);
   app.use('/api/committees', committeesRoutes);
+  app.use('/api/staff', staffRoutes);
 
   app.get('/', (req, res) => res.json({ ok: true }));
 

@@ -1,35 +1,18 @@
 // On importe le routeur d'Express pour définir des routes modularisées.
 import { Router } from 'express';
-import path from 'path';
-import fs from 'fs';
 import multer from 'multer';
 // Modèle Mongoose représentant une ressource pédagogique (PDF, lien, etc.).
 import Resource from '../models/Resource';
 // Middlewares pour vérifier l'authentification et le rôle (Admin requis pour certaines actions).
 import { requireAuth, requireRole } from '../middleware/auth';
+import { uploadPdfBufferToCloudinary } from '../utils/cloudinary';
 
 // Création d'un routeur dédié aux ressources.
 const router = Router();
 
-// Prépare le dossier de stockage local pour les fichiers uploadés
-const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Multer: stockage sur disque, nom de fichier avec timestamp pour éviter collisions
-const storage = multer.diskStorage({
-  destination: function (_req, _file, cb) {
-    cb(null, uploadsDir);
-  },
-  filename: function (_req, file, cb) {
-    const safe = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-    cb(null, safe);
-  }
-});
-
+// Multer: stockage en mémoire (buffer) pour envoyer à Cloudinary
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   fileFilter: function (_req, file, cb) {
     // n'accepte que les PDFs
     if (file.mimetype === 'application/pdf') cb(null, true);
@@ -78,14 +61,15 @@ router.post('/', requireAuth, requireRole('Admin'), async (req, res) => {
 });
 
 // Route: POST /api/resources/upload
-// Description: upload d'un fichier PDF, stockage local dans /uploads et création
-// d'un document Resource (url pointant vers /uploads/<filename>). Accès: Admin.
+// Description: upload d'un fichier PDF vers Cloudinary et création d'un document Resource.
+// Accès: Admin.
 router.post('/upload', requireAuth, requireRole('Admin'), upload.single('file'), async (req: any, res: any) => {
   try {
     if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
 
     const file = req.file;
-    const publicUrl = `/uploads/${file.filename}`;
+    const uploaded = await uploadPdfBufferToCloudinary(file.buffer, file.originalname);
+    const publicUrl = uploaded.secure_url;
 
     // Crée la ressource en base
     const r = await Resource.create({
@@ -101,22 +85,6 @@ router.post('/upload', requireAuth, requireRole('Admin'), upload.single('file'),
   } catch (err) {
     console.error('Error POST /api/resources/upload', err);
     return res.status(500).json({ message: 'Failed to upload resource' });
-  }
-});
-
-// Route helper: GET /uploads/:filename
-// Note: si l'application principale expose déjà les fichiers statiques, cette
-// route n'est pas nécessaire. Gardée pour compatibilité si static middleware
-// n'est pas configuré.
-router.get('/uploads/:filename', (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = path.join(uploadsDir, filename);
-    if (!fs.existsSync(filePath)) return res.status(404).send('Not found');
-    res.sendFile(filePath);
-  } catch (err) {
-    console.error('Error GET /uploads/:filename', err);
-    res.status(500).send('Server error');
   }
 });
 
