@@ -1,4 +1,11 @@
+import path from 'path'
 import { v2 as cloudinary } from 'cloudinary'
+
+function safeFilenameForCloudinary(filename: string) {
+  const base = path.basename(filename || 'photo.jpg')
+  const cleaned = base.replace(/[^a-zA-Z0-9._-]/g, '_') || 'photo.jpg'
+  return `${Date.now()}-${cleaned}`
+}
 
 function getMissingCloudinaryVars() {
   const cloudUrl = process.env.CLOUDINARY_URL
@@ -42,11 +49,13 @@ export async function uploadPdfBufferToCloudinary(buffer: Buffer, filename: stri
         resource_type: 'raw',
         use_filename: true,
         unique_filename: true,
-        filename_override: filename,
+        filename_override: safeFilenameForCloudinary(filename),
       },
       (error, result) => {
         if (error || !result) return reject(error || new Error('Cloudinary upload failed'))
-        resolve({ secure_url: result.secure_url, public_id: result.public_id })
+        const secure_url = result.secure_url || (result as any).url
+        if (!secure_url) return reject(new Error('Cloudinary upload returned no URL'))
+        resolve({ secure_url, public_id: result.public_id })
       }
     )
 
@@ -64,11 +73,13 @@ export async function uploadImageBufferToCloudinary(buffer: Buffer, filename: st
         resource_type: 'image',
         use_filename: true,
         unique_filename: true,
-        filename_override: filename,
+        filename_override: safeFilenameForCloudinary(filename),
       },
       (error, result) => {
         if (error || !result) return reject(error || new Error('Cloudinary upload failed'))
-        resolve({ secure_url: result.secure_url, public_id: result.public_id })
+        const secure_url = result.secure_url || (result as any).url
+        if (!secure_url) return reject(new Error('Cloudinary upload returned no URL'))
+        resolve({ secure_url, public_id: result.public_id })
       }
     )
 

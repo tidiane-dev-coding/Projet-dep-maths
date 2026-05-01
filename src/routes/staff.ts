@@ -90,6 +90,7 @@ router.post('/', requireAuth, requireRole(['Admin', 'Professor']), upload.single
     }
 
     const photoResult = await uploadOptionalPhoto(req)
+    const photoUrl = photoResult.photo ? String(photoResult.photo).trim() : undefined
 
     const created = await StaffMember.create({
       name,
@@ -100,7 +101,7 @@ router.post('/', requireAuth, requireRole(['Admin', 'Professor']), upload.single
       office,
       bio,
       focus,
-      ...(photoResult.photo ? { photo: photoResult.photo } : {}),
+      ...(photoUrl ? { photo: photoUrl } : {}),
     })
     res.json(photoResult.warning ? { ...created.toObject(), warning: photoResult.warning } : created)
   } catch (err: any) {
@@ -133,7 +134,7 @@ router.put('/:id', requireAuth, requireRole(['Admin', 'Professor']), upload.sing
     }
 
     const photoResult = await uploadOptionalPhoto(req)
-    if (photoResult.photo) payload.photo = photoResult.photo
+    if (photoResult.photo) payload.photo = String(photoResult.photo).trim()
 
     const updated = await StaffMember.findByIdAndUpdate(req.params.id, payload, { new: true })
     res.json(photoResult.warning && updated ? { ...updated.toObject(), warning: photoResult.warning } : updated)
