@@ -15,6 +15,29 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 })
 
+function parseFocus(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((x) => String(x).trim()).filter(Boolean)
+  if (typeof value !== 'string') return []
+  const raw = value.trim()
+  if (!raw) return []
+  try {
+    if (raw.startsWith('[')) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) return parsed.map((x) => String(x).trim()).filter(Boolean)
+    }
+  } catch (_err) {
+    // fallback handled below
+  }
+  return raw.split(',').map((x) => x.trim()).filter(Boolean)
+}
+
+async function uploadOptionalPhoto(req: any): Promise<string | undefined> {
+  const file = req.file as any
+  if (!file) return undefined
+  const uploaded = await uploadImageBufferToCloudinary(file.buffer, file.originalname)
+  return uploaded.secure_url
+}
+
 // GET /api/staff (public)
 router.get('/', async (_req, res) => {
   try {
@@ -45,10 +68,35 @@ router.post(
   }
 )
 
-// POST /api/staff (Admin or Professor)
-router.post('/', requireAuth, requireRole(['Admin', 'Professor']), async (req, res) => {
+// POST /api/staff (Admin or Professor) - accepte JSON ou multipart/form-data (photo optionnelle)
+router.post('/', requireAuth, requireRole(['Admin', 'Professor']), upload.single('photo'), async (req: any, res) => {
   try {
-    const created = await StaffMember.create(req.body)
+    const name = String(req.body?.name || '').trim()
+    const title = String(req.body?.title || '').trim()
+    const responsibility = String(req.body?.responsibility || '').trim()
+    const email = String(req.body?.email || '').trim()
+    const phone = String(req.body?.phone || '').trim()
+    const office = String(req.body?.office || '').trim()
+    const bio = String(req.body?.bio || '').trim()
+    const focus = parseFocus(req.body?.focus)
+
+    if (!name || !title || !responsibility || !email || !phone || !office || !bio) {
+      return res.status(400).json({ message: 'Missing required fields' })
+    }
+
+    const photo = await uploadOptionalPhoto(req)
+
+    const created = await StaffMember.create({
+      name,
+      title,
+      responsibility,
+      email,
+      phone,
+      office,
+      bio,
+      focus,
+      ...(photo ? { photo } : {}),
+    })
     res.json(created)
   } catch (err: any) {
     console.error('Error POST /api/staff', err)
@@ -57,10 +105,32 @@ router.post('/', requireAuth, requireRole(['Admin', 'Professor']), async (req, r
   }
 })
 
-// PUT /api/staff/:id (Admin or Professor)
-router.put('/:id', requireAuth, requireRole(['Admin', 'Professor']), async (req, res) => {
+// PUT /api/staff/:id (Admin or Professor) - accepte JSON ou multipart/form-data (photo optionnelle)
+router.put('/:id', requireAuth, requireRole(['Admin', 'Professor']), upload.single('photo'), async (req: any, res) => {
   try {
-    const updated = await StaffMember.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const payload: any = {}
+    const assignString = (key: string) => {
+      if (req.body && Object.prototype.hasOwnProperty.call(req.body, key)) {
+        payload[key] = String(req.body[key]).trim()
+      }
+    }
+
+    assignString('name')
+    assignString('title')
+    assignString('responsibility')
+    assignString('email')
+    assignString('phone')
+    assignString('office')
+    assignString('bio')
+
+    if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'focus')) {
+      payload.focus = parseFocus(req.body.focus)
+    }
+
+    const photo = await uploadOptionalPhoto(req)
+    if (photo) payload.photo = photo
+
+    const updated = await StaffMember.findByIdAndUpdate(req.params.id, payload, { new: true })
     res.json(updated)
   } catch (err: any) {
     console.error('Error PUT /api/staff/:id', err)

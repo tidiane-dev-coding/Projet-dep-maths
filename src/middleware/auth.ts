@@ -21,8 +21,13 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   const auth = req.headers.authorization;
   // Si aucun header Authorization, on renvoie 401 (Unauthorized)
   if (!auth) return res.status(401).json({ message: 'Unauthorized' });
-  // Le header contient normalement "Bearer <token>", on retire le préfixe
-  const token = auth.replace('Bearer ', '');
+  // Le header contient normalement "Bearer <token>" (tolérant à la casse et espaces)
+  const [scheme, rawToken] = auth.split(' ');
+  if (!rawToken || String(scheme).toLowerCase() !== 'bearer') {
+    return res.status(401).json({ message: 'Invalid authorization format' });
+  }
+  const token = rawToken.trim();
+  if (!token) return res.status(401).json({ message: 'Unauthorized' });
   try {
     // On vérifie et décode le token avec la clé secrète (ou 'secret' par défaut)
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
