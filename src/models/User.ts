@@ -23,6 +23,9 @@ const UserSchema = new Schema({
   phone: { type: String },
   // URL vers l'avatar ou la photo de profil (optionnel)
   avatarUrl: { type: String },
+  // Token de réinitialisation (hashé) et date d'expiration
+  resetPasswordToken: { type: String },
+  resetPasswordExpires: { type: Date },
 }, { timestamps: true });
 
 // On exporte le modèle Mongoose. Le modèle est ce que l'on utilise pour créer, lire,

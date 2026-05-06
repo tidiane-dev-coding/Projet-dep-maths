@@ -4,6 +4,7 @@ import User from '../models/User';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
+import crypto from 'crypto';
 
 // Création d'un routeur Express qui va contenir nos routes /register et /login
 const router = Router();
@@ -11,6 +12,31 @@ const SUPER_ADMIN_EMAIL = 'admin@univ.com';
 
 function isSuperAdminEmail(email?: string) {
   return String(email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+}
+
+async function createTransporter() {
+  const smtpHost = process.env.SMTP_HOST
+  const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : undefined
+  const smtpUser = process.env.SMTP_USER
+  const smtpPass = process.env.SMTP_PASS
+
+  if (smtpHost && smtpPort && smtpUser && smtpPass) {
+    return nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: { user: smtpUser, pass: smtpPass }
+    })
+  }
+
+  console.log('SMTP not configured — creating Ethereal test account for dev email preview')
+  const testAccount = await nodemailer.createTestAccount()
+  return nodemailer.createTransport({
+    host: 'smtp.ethereal.email',
+    port: 587,
+    secure: false,
+    auth: { user: testAccount.user, pass: testAccount.pass }
+  })
 }
 
 // Route POST /register : création d'un nouvel utilisateur
@@ -75,21 +101,7 @@ router.post('/register', async (req, res) => {
   // on crée automatiquement un compte Ethereal (service de test) pour développer.
   let emailSent = false;
   try {
-    let transporter;
-    const smtpHost = process.env.SMTP_HOST
-    const smtpPort = process.env.SMTP_PORT ? parseInt(process.env.SMTP_PORT) : undefined
-    const smtpUser = process.env.SMTP_USER
-    const smtpPass = process.env.SMTP_PASS
-
-    if (smtpHost && smtpPort && smtpUser && smtpPass) {
-      // Utilise le serveur SMTP configuré en production
-      transporter = nodemailer.createTransport({ host: smtpHost, port: smtpPort, secure: smtpPort === 465, auth: { user: smtpUser, pass: smtpPass } })
-    } else {
-      // Pas de SMTP : création d'un compte Ethereal pour voir les emails en dev
-      console.log('SMTP not configured — creating Ethereal test account for dev email preview')
-      const testAccount = await nodemailer.createTestAccount()
-      transporter = nodemailer.createTransport({ host: 'smtp.ethereal.email', port: 587, secure: false, auth: { user: testAccount.user, pass: testAccount.pass } })
-    }
+    const transporter = await createTransporter()
 
     // Construction du contenu HTML de l'email (message simple en français)
     const html = `
@@ -158,5 +170,71 @@ router.post('/login', async (req, res) => {
   );
   res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, isSuperAdmin: !!user.isSuperAdmin } });
 });
+
+// Route POST /forgot-password : envoi un lien de réinitialisation
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase()
+    if (!email) return res.status(400).json({ message: 'Email requis' })
+
+    const user = await User.findOne({ email })
+    // Réponse générique pour éviter l'énumération des comptes
+    if (!user) return res.json({ ok: true, message: 'Si cet email existe, un lien a été envoyé.' })
+
+    const rawToken = crypto.randomBytes(32).toString('hex')
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex')
+    const expires = new Date(Date.now() + 60 * 60 * 1000) // 1h
+
+    user.resetPasswordToken = hashedToken
+    user.resetPasswordExpires = expires
+    await user.save()
+
+    const frontendBase = (process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/+$/, '')
+    const resetLink = `${frontendBase}/reset-password/${rawToken}`
+
+    const transporter = await createTransporter()
+    const info = await transporter.sendMail({
+      from: process.env.SMTP_FROM || 'no-reply@departement.edu',
+      to: user.email,
+      subject: 'Réinitialisation de votre mot de passe',
+      text: `Bonjour ${user.name},\n\nCliquez sur ce lien pour réinitialiser votre mot de passe (valide 1 heure):\n${resetLink}\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez cet email.`,
+      html: `<p>Bonjour <strong>${user.name}</strong>,</p><p>Cliquez sur ce lien pour réinitialiser votre mot de passe (valide 1 heure):</p><p><a href="${resetLink}">${resetLink}</a></p><p>Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.</p>`
+    })
+    const previewUrl = nodemailer.getTestMessageUrl(info)
+    if (previewUrl) console.log('E-mail preview URL (ethereal):', previewUrl)
+
+    return res.json({ ok: true, message: 'Si cet email existe, un lien a été envoyé.' })
+  } catch (err: any) {
+    console.error('Error in /api/auth/forgot-password', err)
+    return res.status(500).json({ message: err?.message || 'Server error' })
+  }
+})
+
+// Route POST /reset-password/:token : définit un nouveau mot de passe
+router.post('/reset-password/:token', async (req, res) => {
+  try {
+    const rawToken = String(req.params?.token || '')
+    const password = String(req.body?.password || '')
+    if (!rawToken || !password) return res.status(400).json({ message: 'Token et mot de passe requis' })
+    if (password.length < 6) return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères' })
+
+    const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex')
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: new Date() }
+    })
+    if (!user) return res.status(400).json({ message: 'Lien invalide ou expiré' })
+
+    user.password = await bcrypt.hash(password, 10)
+    user.resetPasswordToken = undefined as any
+    user.resetPasswordExpires = undefined as any
+    await user.save()
+
+    return res.json({ ok: true, message: 'Mot de passe mis à jour.' })
+  } catch (err: any) {
+    console.error('Error in /api/auth/reset-password/:token', err)
+    return res.status(500).json({ message: err?.message || 'Server error' })
+  }
+})
 
 export default router;
