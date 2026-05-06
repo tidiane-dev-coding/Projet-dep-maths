@@ -17,6 +17,8 @@ const UserSchema = new Schema({
   // Le rôle de l'utilisateur dans l'application : Admin, Professor ou Student
   // 'enum' limite les valeurs possibles et 'default' fournit la valeur par défaut
   role: { type: String, enum: ['Admin', 'Professor', 'Student'], default: 'Student' },
+  // Indique un compte "super admin" (plus élevé que Admin classique)
+  isSuperAdmin: { type: Boolean, default: false },
   // Numéro de téléphone (optionnel)
   phone: { type: String },
   // URL vers l'avatar ou la photo de profil (optionnel)

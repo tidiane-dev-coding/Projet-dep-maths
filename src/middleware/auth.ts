@@ -53,6 +53,11 @@ export function requireRole(role: string | string[]) {
     // authentifié. On répond alors 401.
     if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
 
+    // Un super admin passe tous les contrôles de rôle.
+    if (Boolean(req.user.isSuperAdmin)) {
+      return next();
+    }
+
     // Normalisons en minuscule pour faire des comparaisons insensibles à la casse
     const userRole = String(req.user.role || '').toLowerCase();
     // Si le rôle attendu est un tableau, on vérifie que le rôle de l'utilisateur
@@ -65,6 +70,36 @@ export function requireRole(role: string | string[]) {
     }
 
     // Tout est ok, on appelle next pour continuer l'exécution de la route
+    next();
+  };
+}
+
+// Middleware factory: autorise un rôle OU un/des email(s) précis.
+// Utile pour déléguer des droits limités sur certaines routes seulement.
+export function requireRoleOrEmail(role: string | string[], allowedEmail: string | string[]) {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+
+    // Le super admin garde tous les droits.
+    if (Boolean(req.user.isSuperAdmin)) return next();
+
+    const userRole = String(req.user.role || '').toLowerCase();
+    const userEmail = String(req.user.email || '').trim().toLowerCase();
+    const allowedEmails = (Array.isArray(allowedEmail) ? allowedEmail : [allowedEmail])
+      .map((e) => String(e || '').trim().toLowerCase())
+      .filter(Boolean);
+
+    // Autoriser explicitement l'email ciblé.
+    if (userEmail && allowedEmails.includes(userEmail)) return next();
+
+    // Sinon, fallback sur la logique de rôle.
+    if (Array.isArray(role)) {
+      const allowed = role.map(r => String(r).toLowerCase());
+      if (!allowed.includes(userRole)) return res.status(403).json({ message: 'Forbidden' });
+    } else {
+      if (String(role).toLowerCase() !== userRole) return res.status(403).json({ message: 'Forbidden' });
+    }
+
     next();
   };
 }

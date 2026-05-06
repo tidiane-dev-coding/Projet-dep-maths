@@ -1,22 +1,18 @@
 // Routes pour gérer les membres des comités (CommitteeMember).
 // Un 'CommitteeMember' représente une personne (ou un poste) au sein d'un comité pour un niveau donné.
 import { Router } from 'express';
-import path from 'path';
-import fs from 'fs';
 import multer from 'multer';
-import { uploadBufferToS3 } from '../utils/s3';
+import { uploadImageBufferToCloudinary } from '../utils/cloudinary';
 import CommitteeMember from '../models/CommitteeMember';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireRoleOrEmail } from '../middleware/auth';
 
 const router = Router();
+const COMMITTEE_DELEGATE_EMAILS = [
+  'mariama1.diallo@univ-labe.edu.gn',
+  'alpharahma2018@gmail.com',
+];
 
-// Prépare le dossier de stockage local pour les images uploadées
-const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Use memory storage so we can optionally upload to S3 or save to disk
+// Use memory storage for direct Cloudinary upload
 const storage = multer.memoryStorage();
 
 const upload = multer({
@@ -51,9 +47,9 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/committees/upload-photo
-// - Description: upload d'une image de membre, stockage local dans /uploads
+// - Description: upload d'une image de membre vers Cloudinary
 // - Accès: Admin
-router.post('/upload-photo', requireAuth, requireRole('Admin'), upload.single('photo'), async (req: any, res: any) => {
+router.post('/upload-photo', requireAuth, requireRoleOrEmail('Admin', COMMITTEE_DELEGATE_EMAILS), upload.single('photo'), async (req: any, res: any) => {
   try {
     // Debug logs to help diagnose upload issues
     console.log('POST /api/committees/upload-photo headers:', {
@@ -75,28 +71,12 @@ router.post('/upload-photo', requireAuth, requireRole('Admin'), upload.single('p
     const file = req.file as any
     if (!file) return res.status(400).json({ message: 'No file uploaded' })
 
-    // create a safe filename
-    const filename = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_')
-
-    // Determine base URL for fallback
-    const configuredBase = process.env.BASE_URL || process.env.KEEP_ALIVE_URL || null
-    const reqBase = req.protocol && req.get('host') ? `${req.protocol}://${req.get('host')}` : null
-    const base = (configuredBase || reqBase || `http://localhost:${process.env.PORT || 5000}`).replace(/\/+$/, '')
-
     try {
-      let publicUrl: string
-      if (process.env.S3_BUCKET) {
-        // upload to S3
-        publicUrl = await uploadBufferToS3(file.buffer, filename, file.mimetype)
-      } else {
-        // fallback: save to local uploads dir
-        const dest = path.join(uploadsDir, filename)
-        fs.writeFileSync(dest, file.buffer)
-        publicUrl = `${base}/uploads/${filename}`
-      }
+      const uploaded = await uploadImageBufferToCloudinary(file.buffer, file.originalname)
+      const publicUrl = uploaded.secure_url
 
-      console.log('Uploaded file saved:', filename, 'size:', file.size, 'publicUrl:', publicUrl)
-      return res.json({ url: publicUrl, filename })
+      console.log('Committee photo uploaded to Cloudinary:', file.originalname, 'size:', file.size, 'publicUrl:', publicUrl)
+      return res.json({ url: publicUrl, publicId: uploaded.public_id })
     } catch (err: any) {
       console.error('Error saving uploaded file', err)
       return res.status(500).json({ message: err.message || 'Failed to save uploaded file' })
@@ -110,7 +90,7 @@ router.post('/upload-photo', requireAuth, requireRole('Admin'), upload.single('p
 // POST /api/committees
 // - Rôle: Admin
 // - Description: ajoute un membre au comité pour un niveau donné.
-router.post('/', requireAuth, requireRole('Admin'), async (req, res) => {
+router.post('/', requireAuth, requireRoleOrEmail('Admin', COMMITTEE_DELEGATE_EMAILS), async (req, res) => {
   try {
     console.log('POST /api/committees', req.body);
     const c = await CommitteeMember.create(req.body);
@@ -133,7 +113,7 @@ router.post('/', requireAuth, requireRole('Admin'), async (req, res) => {
 // PUT /api/committees/:id
 // - Rôle: Admin
 // - Description: met à jour les informations d'un membre de comité existant.
-router.put('/:id', requireAuth, requireRole('Admin'), async (req, res) => {
+router.put('/:id', requireAuth, requireRoleOrEmail('Admin', COMMITTEE_DELEGATE_EMAILS), async (req, res) => {
   try {
     const id = req.params.id;
     const updated = await CommitteeMember.findByIdAndUpdate(id, req.body, { new: true });
@@ -147,7 +127,7 @@ router.put('/:id', requireAuth, requireRole('Admin'), async (req, res) => {
 // DELETE /api/committees/:id
 // - Rôle: Admin
 // - Description: supprime un membre de comité par son id.
-router.delete('/:id', requireAuth, requireRole('Admin'), async (req, res) => {
+router.delete('/:id', requireAuth, requireRoleOrEmail('Admin', COMMITTEE_DELEGATE_EMAILS), async (req, res) => {
   try {
     const id = req.params.id;
     await CommitteeMember.findByIdAndDelete(id);

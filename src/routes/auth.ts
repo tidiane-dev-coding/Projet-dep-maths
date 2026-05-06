@@ -7,6 +7,11 @@ import nodemailer from 'nodemailer';
 
 // Création d'un routeur Express qui va contenir nos routes /register et /login
 const router = Router();
+const SUPER_ADMIN_EMAIL = 'admin@univ.com';
+
+function isSuperAdminEmail(email?: string) {
+  return String(email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+}
 
 // Route POST /register : création d'un nouvel utilisateur
 router.post('/register', async (req, res) => {
@@ -27,21 +32,44 @@ router.post('/register', async (req, res) => {
     // On vérifie si l'email est déjà utilisé
     const exists = await User.findOne({ email });
     if (exists) {
+      if (isSuperAdminEmail(exists.email) && !exists.isSuperAdmin) {
+        exists.isSuperAdmin = true;
+        if (exists.role !== 'Admin') exists.role = 'Admin';
+        await exists.save();
+      }
       console.warn('Register attempted for existing user', email)
       // Si l'utilisateur existe déjà et que le mot de passe envoyé correspond,
       // on effectue un auto-login (on renvoie un token) pour simplifier l'expérience.
       const pwMatches = password ? await bcrypt.compare(password, exists.password) : false;
       if (pwMatches) {
-        const token = jwt.sign({ id: exists._id, role: exists.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
-        return res.json({ token, user: { id: exists._id, name: exists.name, email: exists.email, role: exists.role }, autoLogin: true });
+        const token = jwt.sign(
+          { id: exists._id, role: exists.role, email: exists.email, isSuperAdmin: !!exists.isSuperAdmin },
+          process.env.JWT_SECRET || 'secret',
+          { expiresIn: '7d' }
+        );
+        return res.json({
+          token,
+          user: { id: exists._id, name: exists.name, email: exists.email, role: exists.role, isSuperAdmin: !!exists.isSuperAdmin },
+          autoLogin: true
+        });
       }
       // Sinon on demande simplement de se connecter
       return res.status(409).json({ message: 'Un compte existe déjà pour cet email. Si c’est vous, connectez-vous.' });
     }
     // Si tout est ok, on hache le mot de passe puis on crée l'utilisateur
     const hash = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hash, role });
-    const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+    const user = await User.create({
+      name,
+      email,
+      password: hash,
+      role,
+      isSuperAdmin: isSuperAdminEmail(email)
+    });
+    const token = jwt.sign(
+      { id: user._id, role: user.role, email: user.email, isSuperAdmin: !!user.isSuperAdmin },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: '7d' }
+    );
   
   // Envoi d'un email de confirmation : si la configuration SMTP est absente,
   // on crée automatiquement un compte Ethereal (service de test) pour développer.
@@ -96,7 +124,11 @@ router.post('/register', async (req, res) => {
   }
 
   // Enfin on renvoie le token, les informations de l'utilisateur créé et l'état d'envoi de l'email
-  res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role }, emailSent });
+  res.json({
+    token,
+    user: { id: user._id, name: user.name, email: user.email, role: user.role, isSuperAdmin: !!user.isSuperAdmin },
+    emailSent
+  });
   } catch (err) {
     console.error('Error in /api/auth/register', err);
     return res.status(500).json({ message: 'Server error' });
@@ -109,12 +141,22 @@ router.post('/login', async (req, res) => {
   // On cherche l'utilisateur par email
   const user = await User.findOne({ email });
   if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+  // Garde-fou: le compte admin seedé est toujours super admin
+  if (isSuperAdminEmail(user.email) && !user.isSuperAdmin) {
+    user.isSuperAdmin = true;
+    if (user.role !== 'Admin') user.role = 'Admin';
+    await user.save();
+  }
   // On compare le mot de passe envoyé avec le hash stocké
   const ok = await bcrypt.compare(password, user.password);
   if (!ok) return res.status(400).json({ message: 'Invalid credentials' });
   // Si tout est bon, on crée un token JWT et on le renvoie avec les infos utilisateur
-  const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
-  res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+  const token = jwt.sign(
+    { id: user._id, role: user.role, email: user.email, isSuperAdmin: !!user.isSuperAdmin },
+    process.env.JWT_SECRET || 'secret',
+    { expiresIn: '7d' }
+  );
+  res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, isSuperAdmin: !!user.isSuperAdmin } });
 });
 
 export default router;

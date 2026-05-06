@@ -26,7 +26,15 @@ async function run() {
 
   const existing = await User.findOne({ email });
   if (existing) {
-    console.log('Admin already exists:', email);
+    // Promote existing seeded admin to super admin if needed
+    if (!existing.isSuperAdmin) {
+      existing.isSuperAdmin = true;
+      if (existing.role !== 'Admin') existing.role = 'Admin';
+      await existing.save();
+      console.log('Existing admin promoted to super admin:', email);
+    } else {
+      console.log('Admin already exists:', email);
+    }
     process.exit(0);
   }
 
@@ -36,6 +44,7 @@ async function run() {
     email, 
     password: hash, 
     role: 'Admin',
+    isSuperAdmin: true,
     phone: process.env.SEED_ADMIN_PHONE || '+224 622 29 23 70'
   });
   console.log('Created admin user:', { id: user._id.toString(), email, name: user.name });
