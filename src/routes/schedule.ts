@@ -10,6 +10,7 @@ const router = Router();
 const SCHEDULE_DELEGATE_EMAILS = [
   'mariama1.diallo@univ-labe.edu.gn',
   'alpharahma2018@gmail.com',
+  'dep.math@univ-labe.edu.gn',
 ];
 
 // GET /api/schedule?classe=L1
@@ -58,7 +59,7 @@ router.get('/', requireAuth, async (req, res) => {
 // - Rôle: Admin
 // - Description simple: crée un nouveau créneau d'emploi du temps.
 // - Attente du corps de la requête: { day, slot, matiere, prof, salle, numero, classe }
-router.post('/', requireAuth, requireRoleOrEmail('Admin', SCHEDULE_DELEGATE_EMAILS), async (req, res) => {
+router.post('/', requireAuth, requireRoleOrEmail(['Admin', 'Professor'], SCHEDULE_DELEGATE_EMAILS), async (req, res) => {
   try {
     console.log('POST /api/schedule', req.body);
 
@@ -90,7 +91,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 // PUT /api/schedule/:id
 // - Rôle: Admin
 // - Description: mettre à jour un créneau existant.
-router.put('/:id', requireAuth, requireRoleOrEmail('Admin', SCHEDULE_DELEGATE_EMAILS), async (req, res) => {
+router.put('/:id', requireAuth, requireRoleOrEmail(['Admin', 'Professor'], SCHEDULE_DELEGATE_EMAILS), async (req, res) => {
   try {
     const id = req.params.id;
     const updated = await Schedule.findByIdAndUpdate(id, req.body, { new: true });
@@ -104,7 +105,7 @@ router.put('/:id', requireAuth, requireRoleOrEmail('Admin', SCHEDULE_DELEGATE_EM
 // DELETE /api/schedule/:id
 // - Rôle: Admin
 // - Description: supprime un créneau par son identifiant.
-router.delete('/:id', requireAuth, requireRoleOrEmail('Admin', SCHEDULE_DELEGATE_EMAILS), async (req, res) => {
+router.delete('/:id', requireAuth, requireRoleOrEmail(['Admin', 'Professor'], SCHEDULE_DELEGATE_EMAILS), async (req, res) => {
   try {
     const id = req.params.id;
     await Schedule.findByIdAndDelete(id);

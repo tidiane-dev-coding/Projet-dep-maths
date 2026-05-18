@@ -18,7 +18,11 @@ const ScheduleSchema = new Schema({
   numero: { type: String },
   // Classe ou niveau concerné par ce créneau (ex: "L1" ou "Master")
   // Si vide, on peut considérer que le créneau est général.
-  classe: { type: String }
+  classe: { type: String },
+  // Type de créneau: 'cours' ou 'activity'
+  slotType: { type: String, enum: ['cours', 'activity'], default: 'cours' },
+  // Description de l'activité si slotType === 'activity' (ex: "Recherche personnelle à la bibliothèque")
+  activity: { type: String }
 }, { timestamps: true });
 
 // Export du modèle Mongoose pour permettre les opérations sur la collection 'schedules'
