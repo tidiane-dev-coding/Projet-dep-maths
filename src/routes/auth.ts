@@ -149,26 +149,47 @@ router.post('/register', async (req, res) => {
 
 // Route POST /login : authentification utilisateur (connexion)
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-  // On cherche l'utilisateur par email
-  const user = await User.findOne({ email });
-  if (!user) return res.status(400).json({ message: 'Invalid credentials' });
-  // Garde-fou: le compte admin seedé est toujours super admin
-  if (isSuperAdminEmail(user.email) && !user.isSuperAdmin) {
-    user.isSuperAdmin = true;
-    if (user.role !== 'Admin') user.role = 'Admin';
-    await user.save();
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email et mot de passe requis' });
+    }
+
+    // Recherche insensible à la casse (emails enregistrés avec majuscules possibles)
+    const user = await User.findOne({
+      email: { $regex: new RegExp(`^${email.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    });
+    if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+
+    if (isSuperAdminEmail(user.email) && !user.isSuperAdmin) {
+      user.isSuperAdmin = true;
+      if (user.role !== 'Admin') user.role = 'Admin';
+      await user.save();
+    }
+
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(400).json({ message: 'Invalid credentials' });
+
+    const token = jwt.sign(
+      { id: user._id, role: user.role, email: user.email, isSuperAdmin: !!user.isSuperAdmin },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: '7d' }
+    );
+    return res.json({
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isSuperAdmin: !!user.isSuperAdmin,
+      },
+    });
+  } catch (err) {
+    console.error('Error in POST /api/auth/login', err);
+    return res.status(500).json({ message: 'Erreur serveur lors de la connexion' });
   }
-  // On compare le mot de passe envoyé avec le hash stocké
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok) return res.status(400).json({ message: 'Invalid credentials' });
-  // Si tout est bon, on crée un token JWT et on le renvoie avec les infos utilisateur
-  const token = jwt.sign(
-    { id: user._id, role: user.role, email: user.email, isSuperAdmin: !!user.isSuperAdmin },
-    process.env.JWT_SECRET || 'secret',
-    { expiresIn: '7d' }
-  );
-  res.json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role, isSuperAdmin: !!user.isSuperAdmin } });
 });
 
 // Route POST /forgot-password : envoi un lien de réinitialisation
@@ -189,7 +210,11 @@ router.post('/forgot-password', async (req, res) => {
     user.resetPasswordExpires = expires
     await user.save()
 
-    const frontendBase = (process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173').replace(/\/+$/, '')
+    const frontendBase = (
+      process.env.FRONTEND_URL ||
+      process.env.CLIENT_URL ||
+      'https://projet-dep-maths.onrender.com'
+    ).replace(/\/+$/, '')
     const resetLink = `${frontendBase}/reset-password/${rawToken}`
 
     const transporter = await createTransporter()

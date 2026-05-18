@@ -16,7 +16,12 @@ import absencesRoutes from './routes/absences';
 
 export function createApp() {
   const app = express();
-  app.use(cors());
+  app.use(
+    cors({
+      origin: true,
+      credentials: true,
+    })
+  );
   app.use(express.json());
   app.use(morgan('dev'));
 
@@ -37,6 +42,7 @@ export function createApp() {
   app.use('/api/absences', absencesRoutes);
 
   app.get('/', (req, res) => res.json({ ok: true }));
+  app.get('/api/health', (req, res) => res.json({ ok: true, service: 'dept-math-api' }));
 
   // Global error handler (returns stack in non-production for easier debugging)
   // Place after all routes

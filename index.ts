@@ -19,8 +19,8 @@ async function start() {
 
   initSocket(server);
 
-  server.listen(PORT, () => {
-    console.log(`Server listening on port ${PORT}`);
+  server.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`Server listening on 0.0.0.0:${PORT}`);
     // Start automatic HTTPS ping to keep server awake (default every 10 minutes)
     const interval = Number(process.env.KEEP_ALIVE_INTERVAL_MS) || 10 * 60 * 1000;
     try {
