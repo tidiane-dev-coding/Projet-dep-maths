@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
 import Announcement from '../models/Announcement';
-import { requireAuth, requireRole } from '../middleware/auth';
+import { requireAuth, requireAnnouncementManager } from '../middleware/auth';
 
 const router = Router();
 
@@ -66,8 +66,8 @@ router.get('/', async (_req, res) => {
   res.json(list);
 });
 
-// POST /api/announcements — Admin, multipart : title, content, image?, pdf?
-router.post('/', requireAuth, requireRole('Admin'), uploadMedia, async (req, res) => {
+// POST /api/announcements — Admin ou délégués, multipart : title, content, image?, pdf?
+router.post('/', requireAuth, requireAnnouncementManager, uploadMedia, async (req, res) => {
   try {
     const { title, content } = req.body;
     if (!title?.trim() || !content?.trim()) {
@@ -88,8 +88,8 @@ router.post('/', requireAuth, requireRole('Admin'), uploadMedia, async (req, res
   }
 });
 
-// PUT /api/announcements/:id — Admin
-router.put('/:id', requireAuth, requireRole('Admin'), uploadMedia, async (req, res) => {
+// PUT /api/announcements/:id — Admin ou délégués
+router.put('/:id', requireAuth, requireAnnouncementManager, uploadMedia, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, content } = req.body;
@@ -110,8 +110,8 @@ router.put('/:id', requireAuth, requireRole('Admin'), uploadMedia, async (req, r
   }
 });
 
-// DELETE /api/announcements/:id — Admin
-router.delete('/:id', requireAuth, requireRole('Admin'), async (req, res) => {
+// DELETE /api/announcements/:id — Admin ou délégués
+router.delete('/:id', requireAuth, requireAnnouncementManager, async (req, res) => {
   const { id } = req.params;
   await Announcement.findByIdAndDelete(id);
   res.json({ ok: true });

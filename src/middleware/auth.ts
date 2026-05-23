@@ -5,8 +5,9 @@
 
 // On importe des types depuis Express pour typer correctement les fonctions
 import { Request, Response, NextFunction } from 'express';
-// jwt nous permet de vérifier et décoder le token (jeton) envoyé par le client
 import jwt from 'jsonwebtoken';
+import User from '../models/User';
+import { isDelegateEmail, normalizeEmail } from '../config/delegates';
 
 // On étend l'objet Request d'Express pour dire que, après authentification,
 // on pourra ajouter la propriété 'user' qui contient les informations du token
@@ -102,4 +103,37 @@ export function requireRoleOrEmail(role: string | string[], allowedEmail: string
 
     next();
   };
+}
+
+/** Admin, super admin ou délégué (e-mail vérifié dans le JWT et en base). */
+export async function requireAnnouncementManager(req: AuthRequest, res: Response, next: NextFunction) {
+  try {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
+
+    if (Boolean(req.user.isSuperAdmin)) return next();
+
+    const roleFromToken = String(req.user.role || '').toLowerCase();
+    if (roleFromToken === 'admin') return next();
+
+    let email = normalizeEmail(req.user.email);
+    if (isDelegateEmail(email)) return next();
+
+    const userId = req.user.id || req.user._id;
+    if (userId) {
+      const dbUser = await User.findById(userId).select('email role isSuperAdmin').lean();
+      if (dbUser) {
+        if (dbUser.isSuperAdmin) return next();
+        if (String(dbUser.role || '').toLowerCase() === 'admin') return next();
+        email = normalizeEmail(dbUser.email);
+        if (isDelegateEmail(email)) return next();
+      }
+    }
+
+    return res.status(403).json({
+      message: 'Accès réservé aux administrateurs et délégués autorisés. Reconnectez-vous si le problème persiste.',
+    });
+  } catch (err) {
+    console.error('requireAnnouncementManager', err);
+    return res.status(500).json({ message: 'Erreur de vérification des droits' });
+  }
 }
